@@ -1,32 +1,36 @@
-import os
-from flask import Flask, jsonify
-import requests
+from flask import Flask, jsonify, request
+import requests, os
 
 app = Flask(__name__)
+DOG_API = os.getenv("DOG_API_URL", "https://dog.ceo/api/breeds/image/random")
 
-DOG_API_URL = os.environ.get("DOG_API_URL", "https://dog.ceo/api/breeds/image/random")
-
+# "Base de datos" temporal en memoria
+DOG_DATA = []
 
 @app.route("/healthz")
 def healthz():
     return jsonify({"status": "ok"})
 
-
 @app.route("/dog")
-def dog():
+def get_dog():
     try:
-        response = requests.get(DOG_API_URL, timeout=5)
-        response.raise_for_status()
-        payload = response.json()
-        image_url = payload.get("message")
+        r = requests.get(DOG_API, timeout=5)
+        data = r.json()
+        return jsonify({"status": "success", "image": data.get("message")})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-        if not image_url:
-            raise ValueError("Dog API response missing 'message'")
+@app.route("/save", methods=["POST"])
+def save_dog():
+    try:
+        record = request.get_json()
+        if not record or "image" not in record:
+            return jsonify({"error": "Invalid data"}), 400
+        DOG_DATA.append(record)
+        return jsonify({"status": "saved", "total": len(DOG_DATA)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-        return jsonify({"status": "success", "image": image_url})
-    except Exception as exc:
-        return jsonify({"status": "error", "message": str(exc)}), 502
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5002)))
+@app.route("/data")
+def get_data():
+    return jsonify({"total": len(DOG_DATA), "items": DOG_DATA})
