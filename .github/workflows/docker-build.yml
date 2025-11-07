@@ -12,7 +12,8 @@ jobs:
       contents: read
       packages: write
     env:
-      IMAGE_NAME: docker.io/${{ secrets.DOCKER_USERNAME }}/ocp-dog-backend-api
+      IMAGE_BASE: docker.io/${{ secrets.DOCKER_USERNAME }}/ocp-dog-backend-api
+      IMAGE_TAG: ${{ github.run_number }}
 
     steps:
       - name: Checkout
@@ -33,4 +34,6 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ env.IMAGE_NAME }}
+          tags: |
+            ${{ env.IMAGE_BASE }}:latest
+            ${{ env.IMAGE_BASE }}:${{ env.IMAGE_TAG }}
