@@ -34,3 +34,8 @@ def save_dog():
 @app.route("/data")
 def get_data():
     return jsonify({"total": len(DOG_DATA), "items": DOG_DATA})
+
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 5002))
+    app.run(host="0.0.0.0", port=port)
