@@ -63,6 +63,6 @@ El flujo `.github/workflows/docker-build.yml` se ejecuta en cada push a `main` y
 
 - Construye la imagen usando Buildx con el contexto actual del repo.
 - Inicia sesión en Docker Hub usando los secretos `DOCKER_USERNAME` y `DOCKERHUB_TOKEN`.
-- Publica dos tags en `docker.io/<DOCKER_USERNAME>/ocp-dog-backend-api`: `latest` y `<número_de_run>` (usa `github.run_number`), así puedes rastrear cada build.
+- Publica un tag único por ejecución en `docker.io/<DOCKER_USERNAME>/ocp-dog-backend-api:<número_de_run>` (usa `github.run_number`). Esto evita conflictos con repositorios que marcan tags como inmutables.
 
 Asegúrate de definir esos secretos en la configuración del repositorio antes de ejecutar el workflow.
