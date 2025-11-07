@@ -12,7 +12,7 @@ jobs:
       contents: read
       packages: write
     env:
-      IMAGE_NAME: docker.io/${{ secrets.DOCKER_USERNAME }}/ocp-dog-backend-api:latest
+      IMAGE_NAME: docker.io/${{ secrets.DOCKER_USERNAME }}/ocp-dog-backend-api
 
     steps:
       - name: Checkout
