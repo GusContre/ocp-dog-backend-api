@@ -1,7 +1,4 @@
 import os
-from typing import Optional
-
-import requests
 from flask import Flask, jsonify, request
 
 from fallback import LocalDogCatalog
@@ -9,8 +6,6 @@ from storage import DogRepository
 
 app = Flask(__name__)
 
-DOG_API_URL = os.getenv("DOG_API_URL", "https://dog.ceo/api/breeds/image/random")
-DOG_API_TIMEOUT = int(os.getenv("DOG_API_TIMEOUT", 5))
 AUTO_SEED = os.getenv("DOG_AUTO_SEED", "true").lower() not in {"false", "0", "no"}
 
 repository = DogRepository()
@@ -37,19 +32,6 @@ def get_ready_connection():
     return conn
 
 
-def fetch_external_payload() -> Optional[dict]:
-    try:
-        response = requests.get(DOG_API_URL, timeout=DOG_API_TIMEOUT)
-        response.raise_for_status()
-        data = response.json() or {}
-        image = data.get("message")
-        if image:
-            return {"status": "success", "image": image, "source": "api"}
-    except Exception as exc:
-        app.logger.warning("External DOG API unavailable: %s", exc)
-    return None
-
-
 @app.get("/healthz")
 def healthz():
     return jsonify({"status": "ok"})
@@ -58,45 +40,39 @@ def healthz():
 @app.get("/dog")
 def get_dog():
     conn = get_ready_connection()
-    if conn:
-        try:
-            row = repository.fetch_random(conn)
-            if row and (row.get("image") or row.get("name")):
-                return jsonify(
-                    {
-                        "status": "success",
-                        "image": row.get("image"),
-                        "name": row.get("name"),
-                        "source": "db",
-                    }
-                )
-        finally:
-            conn.close()
-
-    local = catalog.random()
-    if local:
-        return jsonify(
-            {
-                "status": "success",
-                "image": local.get("image"),
-                "name": local.get("name"),
-                "source": "local",
-            }
+    if not conn:
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "message": "Base de datos no disponible. Intenta nuevamente.",
+                }
+            ),
+            503,
         )
 
-    external = fetch_external_payload()
-    if external:
-        return jsonify(external)
-
-    return (
-        jsonify(
-            {
-                "status": "empty",
-                "message": "No hay datos disponibles. Inserta un perro con POST /save",
-            }
-        ),
-        404,
-    )
+    try:
+        row = repository.fetch_random(conn)
+        if row and (row.get("image") or row.get("name")):
+            return jsonify(
+                {
+                    "status": "success",
+                    "image": row.get("image"),
+                    "name": row.get("name"),
+                    "source": "db",
+                }
+            )
+        return (
+            jsonify(
+                {
+                    "status": "empty",
+                    "message": "No hay perros en la base. Inserta uno con POST /save",
+                }
+            ),
+            404,
+        )
+    finally:
+        conn.close()
 
 
 @app.post("/save")

@@ -3,7 +3,7 @@
 Microservicio Flask que expone cuatro endpoints:
 
 - `GET /healthz` → devuelve `{ "status": "ok" }`.
-- `GET /dog` → intenta responder con un perro en este orden: base de datos, dataset local (`seed_dogs.json`) o la API externa `https://dog.ceo/api/breeds/image/random`.
+- `GET /dog` → responde únicamente con un perro almacenado en la base de datos; si no hay registros devuelve `{ "status": "empty" }`.
 - `POST /save` → inserta un perro.
 - `GET /data` → lista los perros (si no hay base devuelve el dataset local para mantener la experiencia).
 
@@ -11,8 +11,6 @@ Variables clave:
 
 | Variable            | Descripción                                                                                 | Valor por defecto |
 |---------------------|---------------------------------------------------------------------------------------------|-------------------|
-| `DOG_API_URL`       | Endpoint externo para obtener imágenes aleatorias.                                          | `https://dog.ceo/api/breeds/image/random` |
-| `DOG_API_TIMEOUT`   | Timeout en segundos para consumir `DOG_API_URL`.                                           | `5`               |
 | `DOG_AUTO_SEED`     | Si es `true`, replica el dataset local en PostgreSQL cuando la tabla está vacía.           | `true`            |
 | `DOG_FALLBACK_FILE` | Ruta alternativa al dataset local (por defecto `seed_dogs.json` incluido en la imagen).    | `seed_dogs.json`  |
 

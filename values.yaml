@@ -1,10 +1,7 @@
 image:
   repository: docker.io/guscontre1/ocp-dog-backend-api
-  tag: "6"
+  tag: "11"
 
 service:
   port: 5002
   targetPort: 5002
-
-env:
-  DOG_API_URL: https://dog.ceo/api/breeds/image/random
