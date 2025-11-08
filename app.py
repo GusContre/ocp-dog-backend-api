@@ -1,111 +1,105 @@
+import os
+from typing import Optional
+
+import requests
 from flask import Flask, jsonify, request
-import requests, os, random
-import psycopg2
-from psycopg2.extras import RealDictCursor
+
+from fallback import LocalDogCatalog
+from storage import DogRepository
 
 app = Flask(__name__)
-DOG_API = os.getenv("DOG_API_URL", "https://dog.ceo/api/breeds/image/random")
 
-# DB env vars provided by Helm (ConfigMap/Secret)
-DB_HOST = os.getenv("DB_HOST")
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASS")
+DOG_API_URL = os.getenv("DOG_API_URL", "https://dog.ceo/api/breeds/image/random")
+DOG_API_TIMEOUT = int(os.getenv("DOG_API_TIMEOUT", 5))
+AUTO_SEED = os.getenv("DOG_AUTO_SEED", "true").lower() not in {"false", "0", "no"}
+
+repository = DogRepository()
+catalog = LocalDogCatalog()
+_db_seed_checked = False
 
 
-def get_db_conn():
-    if not all([DB_HOST, DB_NAME, DB_USER, DB_PASS]):
+def _seed_database(conn) -> None:
+    global _db_seed_checked
+    if _db_seed_checked or not AUTO_SEED:
+        return
+    repository.seed_if_empty(conn, catalog.items)
+    _db_seed_checked = True
+
+
+def get_ready_connection():
+    conn = repository.get_connection()
+    if not conn:
         return None
-    try:
-        return psycopg2.connect(
-            host=DB_HOST,
-            dbname=DB_NAME,
-            user=DB_USER,
-            password=DB_PASS,
-            port=int(os.getenv("DB_PORT", 5432)),
-            connect_timeout=3,
-        )
-    except Exception:
+    if not repository.ensure_schema(conn):
+        conn.close()
         return None
+    _seed_database(conn)
+    return conn
 
 
-def ensure_schema(conn=None):
-    """Ensure the table exists, optionally reusing an open connection."""
-    db_conn = conn
-    owns_connection = False
-    if db_conn is None:
-        db_conn = get_db_conn()
-        owns_connection = True
-    if not db_conn:
-        return False
+def fetch_external_payload() -> Optional[dict]:
     try:
-        with db_conn.cursor() as cur:
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS dogs (
-                    id SERIAL PRIMARY KEY,
-                    name TEXT,
-                    image TEXT,
-                    created_at TIMESTAMP DEFAULT NOW()
-                )
-                """
-            )
-        db_conn.commit()
-        return True
-    finally:
-        if owns_connection:
-            db_conn.close()
+        response = requests.get(DOG_API_URL, timeout=DOG_API_TIMEOUT)
+        response.raise_for_status()
+        data = response.json() or {}
+        image = data.get("message")
+        if image:
+            return {"status": "success", "image": image, "source": "api"}
+    except Exception as exc:
+        app.logger.warning("External DOG API unavailable: %s", exc)
+    return None
 
-# "Base de datos" temporal en memoria
-DOG_DATA = []
 
-@app.route("/healthz")
+@app.get("/healthz")
 def healthz():
     return jsonify({"status": "ok"})
 
-@app.route("/dog")
-def get_dog():
-    """Return a dog record.
 
-    - If DB is available and has records: return one at random.
-    - Else, try external API.
-    - Else, return 404 guidance.
-    """
-    # Prefer DB if reachable
-    conn = get_db_conn()
+@app.get("/dog")
+def get_dog():
+    conn = get_ready_connection()
     if conn:
         try:
-            if ensure_schema(conn):
-                with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute("SELECT name, image FROM dogs ORDER BY random() LIMIT 1")
-                    row = cur.fetchone()
-                    if row and (row.get("image") or row.get("name")):
-                        return jsonify({
-                            "status": "success",
-                            "image": row.get("image"),
-                            "name": row.get("name"),
-                            "source": "db",
-                        })
+            row = repository.fetch_random(conn)
+            if row and (row.get("image") or row.get("name")):
+                return jsonify(
+                    {
+                        "status": "success",
+                        "image": row.get("image"),
+                        "name": row.get("name"),
+                        "source": "db",
+                    }
+                )
         finally:
             conn.close()
 
-    # No DB row found; try external API
-    try:
-        r = requests.get(DOG_API, timeout=5)
-        r.raise_for_status()
-        data = r.json()
-        image = (data or {}).get("message")
-        if image:
-            return jsonify({"status": "success", "image": image, "source": "api"})
-    except Exception:
-        pass
+    local = catalog.random()
+    if local:
+        return jsonify(
+            {
+                "status": "success",
+                "image": local.get("image"),
+                "name": local.get("name"),
+                "source": "local",
+            }
+        )
 
-    return jsonify({
-        "status": "empty",
-        "message": "No hay datos en la base. Inserta un perro con POST /save",
-    }), 404
+    external = fetch_external_payload()
+    if external:
+        return jsonify(external)
 
-@app.route("/save", methods=["POST"])
+    return (
+        jsonify(
+            {
+                "status": "empty",
+                "message": "No hay datos disponibles. Inserta un perro con POST /save",
+            }
+        ),
+        404,
+    )
+
+
+@app.post("/save")
 def save_dog():
     record = request.get_json() or {}
     name = (record.get("name") or "").strip() or None
@@ -113,42 +107,36 @@ def save_dog():
     if not name and not image:
         return jsonify({"error": "Debe enviar 'name' y/o 'image'"}), 400
 
-    conn = get_db_conn()
+    conn = get_ready_connection()
     if not conn:
-        return jsonify({"error": "Sin conexión a la base"}), 503
+        return jsonify({"error": "Base de datos no disponible"}), 503
 
     try:
-        if not ensure_schema(conn):
-            return jsonify({"error": "Base de datos no disponible"}), 503
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO dogs (name, image) VALUES (%s, %s)", (name, image)
-            )
-        conn.commit()
+        repository.insert(conn, name, image)
         return jsonify({"status": "saved"})
-    except Exception as e:
+    except Exception as exc:
+        app.logger.exception("Error inserting record: %s", exc)
         try:
             conn.rollback()
         except Exception:
             pass
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": str(exc)}), 500
     finally:
         conn.close()
 
-@app.route("/data")
+
+@app.get("/data")
 def get_data():
-    conn = get_db_conn()
-    if not conn:
-        return jsonify({"total": 0, "items": []})
-    try:
-        if not ensure_schema(conn):
-            return jsonify({"total": 0, "items": []})
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT id, name, image, created_at FROM dogs ORDER BY id DESC")
-            rows = cur.fetchall()
-            return jsonify({"total": len(rows), "items": rows})
-    finally:
-        conn.close()
+    conn = get_ready_connection()
+    if conn:
+        try:
+            rows = repository.list_items(conn)
+            return jsonify({"total": len(rows), "items": rows, "source": "db"})
+        finally:
+            conn.close()
+
+    fallback_rows = catalog.enumerated()
+    return jsonify({"total": len(fallback_rows), "items": fallback_rows, "source": "local"})
 
 
 if __name__ == "__main__":

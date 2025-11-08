@@ -1,11 +1,22 @@
 # ocp-dog-backend-api
 
-Microservicio mínimo en Flask que expone dos endpoints:
+Microservicio Flask que expone cuatro endpoints:
 
-- `GET /healthz` → devuelve `{ "status": "ok" }`
-- `GET /dog` → consume `https://dog.ceo/api/breeds/image/random` y responde `{ "status": "success", "image": "<url>" }`
+- `GET /healthz` → devuelve `{ "status": "ok" }`.
+- `GET /dog` → intenta responder con un perro en este orden: base de datos, dataset local (`seed_dogs.json`) o la API externa `https://dog.ceo/api/breeds/image/random`.
+- `POST /save` → inserta un perro.
+- `GET /data` → lista los perros (si no hay base devuelve el dataset local para mantener la experiencia).
 
-La URL del proveedor se puede sobreescribir con la variable de entorno `DOG_API_URL`. El servicio escucha en el puerto `5002`.
+Variables clave:
+
+| Variable            | Descripción                                                                                 | Valor por defecto |
+|---------------------|---------------------------------------------------------------------------------------------|-------------------|
+| `DOG_API_URL`       | Endpoint externo para obtener imágenes aleatorias.                                          | `https://dog.ceo/api/breeds/image/random` |
+| `DOG_API_TIMEOUT`   | Timeout en segundos para consumir `DOG_API_URL`.                                           | `5`               |
+| `DOG_AUTO_SEED`     | Si es `true`, replica el dataset local en PostgreSQL cuando la tabla está vacía.           | `true`            |
+| `DOG_FALLBACK_FILE` | Ruta alternativa al dataset local (por defecto `seed_dogs.json` incluido en la imagen).    | `seed_dogs.json`  |
+
+El servicio escucha en el puerto `5002`.
 
 ## Ejecución local
 
