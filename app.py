@@ -6,7 +6,7 @@ from storage import DogRepository
 
 app = Flask(__name__)
 
-AUTO_SEED = os.getenv("DOG_AUTO_SEED", "true").lower() not in {"false", "0", "no"}
+AUTO_SEED = os.getenv("DOG_AUTO_SEED", "false").lower() not in {"false", "0", "no"}
 
 repository = DogRepository()
 catalog = LocalDogCatalog()

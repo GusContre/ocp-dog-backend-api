@@ -11,7 +11,7 @@ Variables clave:
 
 | Variable            | Descripción                                                                                 | Valor por defecto |
 |---------------------|---------------------------------------------------------------------------------------------|-------------------|
-| `DOG_AUTO_SEED`     | Si es `true`, replica el dataset local en PostgreSQL cuando la tabla está vacía.           | `true`            |
+| `DOG_AUTO_SEED`     | Si es `true`, replica el dataset local en PostgreSQL cuando la tabla está vacía.           | `false`           |
 | `DOG_FALLBACK_FILE` | Ruta alternativa al dataset local (por defecto `seed_dogs.json` incluido en la imagen).    | `seed_dogs.json`  |
 
 El servicio escucha en el puerto `5002`.
