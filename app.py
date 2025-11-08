@@ -29,12 +29,17 @@ def get_db_conn():
         return None
 
 
-def ensure_schema():
-    conn = get_db_conn()
-    if not conn:
+def ensure_schema(conn=None):
+    """Ensure the table exists, optionally reusing an open connection."""
+    db_conn = conn
+    owns_connection = False
+    if db_conn is None:
+        db_conn = get_db_conn()
+        owns_connection = True
+    if not db_conn:
         return False
     try:
-        with conn, conn.cursor() as cur:
+        with db_conn.cursor() as cur:
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS dogs (
@@ -45,9 +50,11 @@ def ensure_schema():
                 )
                 """
             )
+        db_conn.commit()
         return True
     finally:
-        conn.close()
+        if owns_connection:
+            db_conn.close()
 
 # "Base de datos" temporal en memoria
 DOG_DATA = []
@@ -65,11 +72,11 @@ def get_dog():
     - Else, return 404 guidance.
     """
     # Prefer DB if reachable
-    if ensure_schema():
-        conn = get_db_conn()
-        if conn:
-            try:
-                with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+    conn = get_db_conn()
+    if conn:
+        try:
+            if ensure_schema(conn):
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute("SELECT name, image FROM dogs ORDER BY random() LIMIT 1")
                     row = cur.fetchone()
                     if row and (row.get("image") or row.get("name")):
@@ -79,8 +86,8 @@ def get_dog():
                             "name": row.get("name"),
                             "source": "db",
                         })
-            finally:
-                conn.close()
+        finally:
+            conn.close()
 
     # No DB row found; try external API
     try:
@@ -106,34 +113,37 @@ def save_dog():
     if not name and not image:
         return jsonify({"error": "Debe enviar 'name' y/o 'image'"}), 400
 
-    if not ensure_schema():
-        return jsonify({"error": "Base de datos no disponible"}), 503
-
     conn = get_db_conn()
     if not conn:
         return jsonify({"error": "Sin conexión a la base"}), 503
 
     try:
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO dogs (name, image) VALUES (%s, %s)", (name, image)
-                )
+        if not ensure_schema(conn):
+            return jsonify({"error": "Base de datos no disponible"}), 503
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO dogs (name, image) VALUES (%s, %s)", (name, image)
+            )
+        conn.commit()
         return jsonify({"status": "saved"})
     except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         return jsonify({"error": str(e)}), 500
     finally:
         conn.close()
 
 @app.route("/data")
 def get_data():
-    if not ensure_schema():
-        return jsonify({"total": 0, "items": []})
     conn = get_db_conn()
     if not conn:
         return jsonify({"total": 0, "items": []})
     try:
-        with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        if not ensure_schema(conn):
+            return jsonify({"total": 0, "items": []})
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("SELECT id, name, image, created_at FROM dogs ORDER BY id DESC")
             rows = cur.fetchall()
             return jsonify({"total": len(rows), "items": rows})
